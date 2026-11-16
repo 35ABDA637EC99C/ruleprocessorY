@@ -11,12 +11,13 @@ Rule::Rule(const char input_rule, const std::string& input_rule_value_1, const s
     rule_value_1 = input_rule_value_1;
     rule_value_2 = input_rule_value_2;
     rule = input_rule;
-    invalid_rule = false;
+    invalid_rule = !validate_rule();
+    if(invalid_rule) {
+        // Syntactically invalid rules are discarded downstream; skip building the processor.
+        rule_processor = [](std::string&, Context&){};
+        return;
+    }
     rule_processor = build_rule_processor(); // may set invalid_rule = true
-
-    if(!validate_rule()) {
-        invalid_rule = true;
-    };
 }
 
 bool Rule::operator==(const Rule& rhs) const
@@ -186,8 +187,8 @@ bool Rule::validate_rule() const {
 
 std::function<void(std::string&, Rule::Context&)> Rule::build_rule_processor() {
     int int_value_1, int_value_2;
-    bool value_1_is_numeric = (rule_value_1.find_first_not_of("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ") == std::string::npos);
-    bool value_2_is_numeric = (rule_value_2.find_first_not_of("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ") == std::string::npos);
+    bool value_1_is_numeric = (!rule_value_1.empty() && rule_value_1.find_first_not_of("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ") == std::string::npos);
+    bool value_2_is_numeric = (!rule_value_2.empty() && rule_value_2.find_first_not_of("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ") == std::string::npos);
 
     auto get_number_value = [](const std::string& value)
     {
@@ -231,12 +232,14 @@ std::function<void(std::string&, Rule::Context&)> Rule::build_rule_processor() {
 
         case 'c':
             return [](std::string& plaintext, Context&){
+                if(plaintext.empty()) return;
                 transform(plaintext.begin(), plaintext.end(), plaintext.begin(), ::tolower);
                 plaintext[0] = char(toupper(plaintext[0]));
             };
 
         case 'C':
             return [](std::string& plaintext, Context&){
+                if(plaintext.empty()) return;
                 transform(plaintext.begin(), plaintext.end(), plaintext.begin(), ::toupper);
                 plaintext[0] = char(tolower(plaintext[0]));
             };
