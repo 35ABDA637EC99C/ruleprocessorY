@@ -289,9 +289,12 @@ void process_stage2_thread(const std::vector<std::string>& test_words) {
         lock.unlock();
 
         for(auto& rule_set_pair : rule_buffer) {
-            // Create PowerSet
+            // Create PowerSet, short-circuited: only subsets that drop at most
+            // max_removed_ops operations are tested. Removing 1-5 ops covers the
+            // common same-op cases at a fraction of the cost of all 2^n subsets.
             double pow_set_size = pow(2, rule_set_pair.second.size());
             int counter, j;
+            const int max_removed_ops = 5;
             bool found_new = false;
 
             // Get original rule output to compare against powerset output
@@ -310,8 +313,13 @@ void process_stage2_thread(const std::vector<std::string>& test_words) {
             // End fetching original rule output
 
             for (counter = 0; counter < pow_set_size; counter++) {
+                int removed_ops = 0;
+                for (j = 0; j < (int)rule_set_pair.second.size(); j++) {
+                    if (!(counter & (1 << j))) removed_ops++;
+                }
+                if (removed_ops > max_removed_ops) continue; // short-circuit: skip deep subsets
                 std::vector<Rule> rule_power_set_item;
-                for (j = 0; j < rule_set_pair.second.size(); j++) {
+                for (j = 0; j < (int)rule_set_pair.second.size(); j++) {
                     if (counter & (1 << j))
                         rule_power_set_item.emplace_back(rule_set_pair.second[j]);
                 }
