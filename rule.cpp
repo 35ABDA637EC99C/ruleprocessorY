@@ -800,11 +800,11 @@ std::function<void(std::string&, Rule::Context&)> Rule::build_rule_processor() {
                 plaintext = std::move(hex);
             };
 
-        case 'v':  // Insert char X every N characters
+        case 'v':  // Insert char X every N characters (hashcat 8.0.0: N=0 is valid and a no-op)
             if(!value_1_is_numeric) break;
             int_value_1 = get_number_value(rule_value_1); // interval
-            if(int_value_1 < 1) break;
             return [interval=int_value_1, rule_value_2=rule_value_2](std::string& plaintext, Context&){
+                if(interval == 0) return;  // hashcat 8.0.0 mangle_insert_every: upos == 0 leaves the word unchanged
                 if(interval >= plaintext.size()+1) return;
                 std::string result;
                 result.reserve(plaintext.size() + (plaintext.size() / interval + 1) * rule_value_2.size());
