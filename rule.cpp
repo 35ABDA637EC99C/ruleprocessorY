@@ -470,16 +470,14 @@ std::function<void(std::string&, Rule::Context&)> Rule::build_rule_processor() {
 
         case 'y':
             if(!value_1_is_numeric) break;
-            int_value_1 = get_number_value(rule_value_1); // insert location
-            if(int_value_1 == 0) break;
+            int_value_1 = get_number_value(rule_value_1); // insert location; N=0 is a valid no-op (hashcat 8.0.0 semantics)
             return [rule_value_1=int_value_1](std::string& plaintext, Context&){
                 plaintext.insert(0, plaintext.substr(0, rule_value_1));
             };
 
         case 'Y':
             if(!value_1_is_numeric) break;
-            int_value_1 = get_number_value(rule_value_1); // insert location
-            if(int_value_1 == 0) break;
+            int_value_1 = get_number_value(rule_value_1); // insert location; N=0 is a valid no-op (hashcat 8.0.0 semantics)
             return [rule_value_1=int_value_1](std::string& plaintext, Context&){
                 if(rule_value_1 > plaintext.size()) {
                     plaintext += plaintext;
