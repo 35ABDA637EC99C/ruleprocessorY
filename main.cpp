@@ -104,13 +104,20 @@ std::vector<std::string> invalid_lines;
 // Convert from Hashcat to TSV format (for RuleProcessorY)
 std::string convert_from_hashcat(unsigned long line_counter, std::string rule) {
     // sets of each rule width
-    std::set<char> single_wide = { ':', 'l', 'u', 'c', 'C', 't', 'r', 'd', 'f', '{', '}', '[', ']', 'k', 'K', 'q','E' };
-    std::set<char> double_wide = { 'T', 'p', 'D', 'Z', 'z', '$', '^', '<', '>', '_', '\'', '!', '/', '@' ,'-', '+', 'y', 'Y', 'L', 'R', '.', ',', 'e' };
-    std::set<char> triple_wide = { 's', 'x', 'O', 'o', 'i', '*', '3' };
+    std::set<char> single_wide = { ':', 'l', 'u', 'c', 'C', 't', 'r', 'd', 'f', '{', '}', '[', ']', 'k', 'K', 'q','E', 'S', 'a', 'M', '4', '6', 'Q', 'h', 'H' };
+    std::set<char> double_wide = { 'T', 'p', 'D', 'Z', 'z', '$', '^', '<', '>', '_', '\'', '!', '/', '@' ,'-', '+', 'y', 'Y', 'L', 'R', '.', ',', 'e', '(', ')' };
+    std::set<char> triple_wide = { 's', 'x', 'O', 'o', 'i', '*', '3', '=', '%', 'B', 'v' };
+    std::set<char> quad_wide = { 'N', 'X' }; // rules with 3 single-character operands
     std::string formatted_rule;
     int offset;
     char baseRule;
     formatted_rule = "";
+
+    // width of one operand: a single character or a \xHH escape
+    auto operand_width = [&rule](int pos) -> int {
+        if (rule.substr(pos, 2) == "\\x") return 4;
+        return 1;
+    };
 
     for (offset = 0; offset < rule.length();) {
         // get rule identifier
@@ -154,6 +161,30 @@ std::string convert_from_hashcat(unsigned long line_counter, std::string rule) {
                 offset += 3;
             }
         }
+            // check if the rule is 4 characters wide (3 operands, each a char or \xHH escape)
+        else if (quad_wide.count(baseRule)) {
+            int width = 1;
+            for (int operand = 0; operand < 3; operand++) {
+                width += operand_width(offset + width);
+            }
+            if (offset + width > rule.length()) width = rule.length() - offset; // malformed rule, let validation catch it
+            formatted_rule += rule.substr(offset, width) + '\t';
+            offset += width;
+        }
+            // character class rules: ~<op> followed by 2 or 3 items ('?', class char, optional replacement / position)
+        else if (baseRule == '~') {
+            int width = 2; // '~' + sub-operation
+            if (offset + 1 < rule.length()) {
+                const char sub_op = rule[offset + 1];
+                const int item_count = (sub_op == 's' || sub_op == '=' || sub_op == '%') ? 3 : 2;
+                for (int item = 0; item < item_count; item++) {
+                    width += operand_width(offset + width);
+                }
+            }
+            if (offset + width > rule.length()) width = rule.length() - offset; // malformed rule, let validation catch it
+            formatted_rule += rule.substr(offset, width) + '\t';
+            offset += width;
+        }
             // ignore if the line is a comment
         else if (baseRule == '#')
             offset = 254;
@@ -194,8 +225,9 @@ void process_stage1_thread(const std::vector<std::string>& test_words) {
                 }
 
                 std::string new_plain{test_word};
+                Rule::Context ctx;
                 for (Rule &rule_item: rule_set_pair.second) {
-                    rule_item.process(new_plain);
+                    rule_item.process(new_plain, ctx);
                 }
 
                 if (test_word != new_plain && !new_plain.empty()) {
@@ -266,8 +298,9 @@ void process_stage2_thread(const std::vector<std::string>& test_words) {
             std::vector<std::string> original_rule_output;
             for (const std::string &test_word: test_words) {
                 std::string new_plain{test_word};
+                Rule::Context ctx;
                 for (Rule &rule_item: rule_set_pair.second) {
-                    rule_item.process(new_plain);
+                    rule_item.process(new_plain, ctx);
                 }
 
                 if (test_word != new_plain && !new_plain.empty()) {
@@ -287,8 +320,9 @@ void process_stage2_thread(const std::vector<std::string>& test_words) {
                     std::vector<std::string> powerset_item_output;
                     for (const std::string &test_word: test_words) {
                         std::string new_plain{test_word};
+                        Rule::Context ctx;
                         for (Rule &rule_item: rule_power_set_item) {
-                            rule_item.process(new_plain);
+                            rule_item.process(new_plain, ctx);
                         }
                         if (test_word != new_plain && !new_plain.empty()) {
                             powerset_item_output.push_back(std::move(new_plain));
@@ -449,6 +483,40 @@ long double get_rule_performance(const Rule& rule) {
             return 11;
         case '3': // 30-
             return 14.5;
+        case '(': // (a
+            return 20;
+        case ')': // )a
+            return 20;
+        case '=': // =1a
+            return 20;
+        case '%': // %2a
+            return 12;
+        case 'M': // memorize word
+            return 18;
+        case '4': // append memory
+            return 18;
+        case '6': // prepend memory
+            return 18;
+        case 'Q': // reject memory
+            return 20;
+        case 'X': // X428
+            return 10;
+        case 'B': // B3x
+            return 19.5;
+        case 'h': // to hex lower
+            return 10;
+        case 'H': // to hex upper
+            return 10;
+        case 'v': // v2-
+            return 18;
+        case 'N': // N2ab
+            return 12;
+        case '~': // ~s?l1
+            return 12;
+        case 'S': // shift case (hashcat 8.0.0)
+            return 16;
+        case 'a': // no-op
+            return 25;
     }
     return 15; // default a bit in the middle (lower end)
 }
@@ -784,8 +852,9 @@ void process_stage3_thread_slow(std::vector<std::pair<unsigned long, std::vector
             rule_set_output.reserve(test_words.size());
             for (const std::string &test_word: test_words) {
                 std::string new_plain{test_word};
+                Rule::Context ctx;
                 for (Rule &rule_item: rule_set_pair.second) {
-                    rule_item.process(new_plain);
+                    rule_item.process(new_plain, ctx);
                 }
                 if (test_word != new_plain && !new_plain.empty()) {
                     rule_set_output.push_back(std::move(new_plain));
@@ -803,8 +872,9 @@ void process_stage3_thread_slow(std::vector<std::pair<unsigned long, std::vector
                     // Get the computed words
                     for (const std::string &test_word: test_words) {
                         std::string new_plain{test_word};
+                        Rule::Context ctx;
                         for (Rule &rule_item: rule_set_comparison) {
-                            rule_item.process(new_plain);
+                            rule_item.process(new_plain, ctx);
                         }
                         if (test_word != new_plain && !new_plain.empty()) {
                             compare_rule_set_output.push_back(std::move(new_plain));
@@ -872,8 +942,9 @@ void process_stage3_thread_slow(std::vector<std::pair<unsigned long, std::vector
 
                 for (const std::string &test_word: test_words) {
                     std::string new_plain{test_word};
+                    Rule::Context ctx;
                     for (Rule &rule_item: rule_set_comparison_pair.second) {
-                        rule_item.process(new_plain);
+                        rule_item.process(new_plain, ctx);
                     }
                     if (test_word != new_plain && !new_plain.empty()) {
                         compare_rule_set_output.push_back(std::move(new_plain));
@@ -1343,6 +1414,11 @@ int main(int argc, const char *argv[]) {
                 continue;
             }
 
+            if(raw_rule == "S") { // bare 'S' = hashcat 8.0.0 shift-case (unary); 'SXY' below = replace first occurrence
+                rule_set.push_back(Rule('S', "", ""));
+                continue;
+            }
+
             if(Rule::rule_identify(raw_rule[0]) == 3 && raw_rule.size() >= 3) {
                 rule = raw_rule[0];
                 rule_value = raw_rule[1];
@@ -1449,6 +1525,11 @@ int main(int argc, const char *argv[]) {
                     rule_value = raw_rule.substr(1, raw_rule.size());
                     Rule single_rule(static_cast<char>(rule), rule_value, "");
                     rule_set.push_back(single_rule);
+                    continue;
+                }
+
+                if(raw_rule == "S") { // bare 'S' = hashcat 8.0.0 shift-case (unary); 'SXY' below = replace first occurrence
+                    rule_set.push_back(Rule('S', "", ""));
                     continue;
                 }
 
@@ -1812,8 +1893,9 @@ int main(int argc, const char *argv[]) {
 
                 for (const std::string &test_word: test_words) {
                     std::string new_plain{test_word};
+                    Rule::Context ctx;
                     for (Rule &rule_item: rule_set_pair.second) {
-                        rule_item.process(new_plain);
+                        rule_item.process(new_plain, ctx);
                     }
                     if (test_word != new_plain && !new_plain.empty()) {
                         rule_set_output.push_back(std::move(new_plain));
@@ -1831,8 +1913,9 @@ int main(int argc, const char *argv[]) {
 
                 for (const std::string &test_word: test_words) {
                     std::string new_plain{test_word};
+                    Rule::Context ctx;
                     for (Rule &rule_item: rule_set_pair.second) {
-                        rule_item.process(new_plain);
+                        rule_item.process(new_plain, ctx);
                     }
                     if (test_word != new_plain && !new_plain.empty()) {
                         compare_rule_set_output.push_back(std::move(new_plain));
@@ -2142,8 +2225,9 @@ int main(int argc, const char *argv[]) {
         while (std::getline(fin, file_line)) {
             for (std::pair<unsigned long, std::vector<Rule>> &rule_pair: rule_objects) {
                 if (rule_pair.second[0].rule == ':') {
+                    Rule::Context ctx;
                     for (Rule &rule_item: rule_pair.second) {
-                        rule_item.process(file_line);
+                        rule_item.process(file_line, ctx);
                     }
                     if (!file_line.empty()) {
                         std::cout << file_line << '\n';
@@ -2151,8 +2235,9 @@ int main(int argc, const char *argv[]) {
                     continue;
                 }
                 std::string new_plain{file_line};
+                Rule::Context ctx;
                 for (Rule &rule_item: rule_pair.second) {
-                    rule_item.process(new_plain);
+                    rule_item.process(new_plain, ctx);
                 }
                 if (file_line != new_plain && !new_plain.empty()) {
                     std::cout << new_plain << '\n';
@@ -2163,8 +2248,9 @@ int main(int argc, const char *argv[]) {
         while (std::getline(fin, file_line)) {
             for (std::pair<unsigned long, std::vector<Rule>> &rule_pair: rule_objects) {
                 if (rule_pair.second[0].rule == ':') {
+                    Rule::Context ctx;
                     for (Rule &rule_item: rule_pair.second) {
-                        rule_item.process(file_line);
+                        rule_item.process(file_line, ctx);
                     }
                     if (!file_line.empty()) {
                         std::cout << ":" << show_rule_delimiter << file_line << '\n';
@@ -2172,8 +2258,9 @@ int main(int argc, const char *argv[]) {
                     continue;
                 }
                 std::string new_plain{file_line};
+                Rule::Context ctx;
                 for (Rule &rule_item: rule_pair.second) {
-                    rule_item.process(new_plain);
+                    rule_item.process(new_plain, ctx);
                 }
                 if (file_line != new_plain && !new_plain.empty()) {
                     for (Rule &rule_item: rule_pair.second) {
