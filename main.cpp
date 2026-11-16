@@ -115,7 +115,7 @@ std::string convert_from_hashcat(unsigned long line_counter, std::string rule) {
 
     // width of one operand: a single character or a \xHH escape
     auto operand_width = [&rule](int pos) -> int {
-        if (rule.substr(pos, 2) == "\\x") return 4;
+        if (pos >= 0 && static_cast<size_t>(pos) + 2 <= rule.size() && rule.substr(pos, 2) == "\\x") return 4;
         return 1;
     };
 
@@ -2225,12 +2225,13 @@ int main(int argc, const char *argv[]) {
         while (std::getline(fin, file_line)) {
             for (std::pair<unsigned long, std::vector<Rule>> &rule_pair: rule_objects) {
                 if (rule_pair.second[0].rule == ':') {
+                    std::string new_plain{file_line};
                     Rule::Context ctx;
                     for (Rule &rule_item: rule_pair.second) {
-                        rule_item.process(file_line, ctx);
+                        rule_item.process(new_plain, ctx);
                     }
-                    if (!file_line.empty()) {
-                        std::cout << file_line << '\n';
+                    if (!new_plain.empty()) {
+                        std::cout << new_plain << '\n';
                     }
                     continue;
                 }
@@ -2248,12 +2249,13 @@ int main(int argc, const char *argv[]) {
         while (std::getline(fin, file_line)) {
             for (std::pair<unsigned long, std::vector<Rule>> &rule_pair: rule_objects) {
                 if (rule_pair.second[0].rule == ':') {
+                    std::string new_plain{file_line};
                     Rule::Context ctx;
                     for (Rule &rule_item: rule_pair.second) {
-                        rule_item.process(file_line, ctx);
+                        rule_item.process(new_plain, ctx);
                     }
-                    if (!file_line.empty()) {
-                        std::cout << ":" << show_rule_delimiter << file_line << '\n';
+                    if (!new_plain.empty()) {
+                        std::cout << ":" << show_rule_delimiter << new_plain << '\n';
                     }
                     continue;
                 }
